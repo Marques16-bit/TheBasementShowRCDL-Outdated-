@@ -110,9 +110,13 @@
 	<assets path="assets/week7"			library="week7"		exclude="*.ogg" if="web"/>
 	<assets path="assets/week7"			library="week7"		exclude="*.mp3" unless="web"/>
 
+	<!-- ANDROID: o repositorio nao tem a pasta example_mods (o conteudo do mod esta em assets/),
+		entao esse asset foi desligado. A pasta mods/ sera tratada no armazenamento externo (etapa 2). -->
+	<!--
 	<section if="MODS_ALLOWED">
 		<assets path='example_mods' rename='mods' embed='false'/>
 	</section>
+	-->
 	<assets path='art/readme.txt' rename='do NOT readme.txt' />
 	<!-- <template path='mods' /> -->
 	<!-- assets path="CHANGELOG.md" rename='changelog.txt' -->
