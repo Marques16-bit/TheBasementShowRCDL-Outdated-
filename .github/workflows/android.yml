@@ -1,0 +1,150 @@
+name: Build Android (TBS)
+
+on:
+  workflow_dispatch:   # botão "Run workflow" na aba Actions
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: krdlab/setup-haxe@v1
+        with:
+          haxe-version: 4.2.5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 11
+
+      - uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: r21e
+
+      # Cache das libs (invalida sozinho quando este arquivo muda)
+      - uses: actions/cache@v4
+        with:
+          path: ~/haxelib
+          key: haxelib-tbs-${{ hashFiles('.github/workflows/android.yml') }}
+
+      # ------------------------------------------------------------------
+      # RELATÓRIO DO PROJETO: o workflow olha o repositório inteiro e
+      # imprime um resumo (engine, tamanhos, shaders, lua, vídeos, nomes
+      # problemáticos). Também fica salvo no artefato "analysis".
+      # ------------------------------------------------------------------
+      - name: Analisar o projeto
+        run: |
+          set +e
+          {
+          echo "===== ENGINE ====="
+          echo "gitVersion: $(head -1 gitVersion.txt 2>/dev/null)"
+          grep -rhoE "psychEngineVersion[^;]*;" source 2>/dev/null | head -2
+          echo "Project.xml app: $(grep -m1 '<app title' Project.xml)"
+          echo "arquivos .hx em source: $(find source -name '*.hx' 2>/dev/null | wc -l)"
+          echo "pastas em source: $(ls -d source/*/ 2>/dev/null | xargs -n1 basename 2>/dev/null | tr '\n' ' ')"
+          echo
+          echo "===== TAMANHOS (o APK leva o assets/ inteiro) ====="
+          du -sh . assets art docs source 2>/dev/null
+          echo "--- maiores pastas de assets ---"
+          du -sh assets/* 2>/dev/null | sort -h | tail -8
+          echo "--- arquivos acima de 50MB ---"
+          find . -path ./.git -prune -o -type f -size +50M -print 2>/dev/null | head -10
+          echo
+          echo "===== CONTAGEM DE ARQUIVOS EM assets/ ====="
+          for e in lua frag vert hx json png xml txt ogg mp3 mp4 webm ttf otf; do
+            echo "$e: $(find assets -type f -iname "*.$e" 2>/dev/null | wc -l)"
+          done
+          echo
+          echo "===== SHADERS ====="
+          echo ".frag: $(find . -path ./.git -prune -o -name '*.frag' -print | wc -l) | .vert: $(find . -path ./.git -prune -o -name '*.vert' -print | wc -l)"
+          find . -path ./.git -prune -o -name '*.frag' -print | head -40
+          echo "frag SEM 'precision': $(for f in $(find . -path ./.git -prune -o -name '*.frag' -print); do grep -qi 'precision' "$f" || echo x; done | wc -l)"
+          echo "frag com '#version': $(grep -rl '#version' --include=*.frag . 2>/dev/null | wc -l)"
+          echo "frag com 'texture2D(': $(grep -rl 'texture2D(' --include=*.frag . 2>/dev/null | wc -l)"
+          echo "frag com 'texture(' : $(grep -rlE 'texture\(' --include=*.frag . 2>/dev/null | wc -l)"
+          echo "frag com '#pragma header': $(grep -rl '#pragma header' --include=*.frag . 2>/dev/null | wc -l)"
+          echo
+          echo "===== LUA / VÍDEO ====="
+          echo "scripts lua: $(find assets -iname '*.lua' 2>/dev/null | wc -l)"
+          echo "lua usando initLuaShader: $(grep -rl 'initLuaShader' --include=*.lua . 2>/dev/null | wc -l)"
+          echo "lua usando startVideo: $(grep -rl 'startVideo' --include=*.lua . 2>/dev/null | wc -l)"
+          echo "videos mp4/webm: $(find assets -type f \( -iname '*.mp4' -o -iname '*.webm' \) 2>/dev/null | wc -l)"
+          echo
+          echo "===== CÓDIGO (source/) ====="
+          for p in '#if desktop' '#if MODS_ALLOWED' '#if LUA_ALLOWED' '#if VIDEOS_ALLOWED' 'FileSystem\.' 'File\.getContent' 'Sys\.' 'DiscordClient' 'hxcodec|vlc\.' 'LuaL\.dofile' 'FlxRuntimeShader'; do
+            echo "$p: $(grep -rEc "$p" source 2>/dev/null | awk -F: '{s+=$2} END {print s+0}')"
+          done
+          echo "arquivos com android/mobile no código: $(grep -rlE '#if (android|mobile)' source 2>/dev/null | wc -l)"
+          echo
+          echo "===== NOMES PROBLEMÁTICOS EM assets/ ====="
+          echo "com espaço: $(find assets -name '* *' 2>/dev/null | wc -l)"
+          echo "com caractere não-ASCII: $(find assets 2>/dev/null | LC_ALL=C grep -c '[^ -~]')"
+          echo "duplicados só por maiúscula/minúscula: $(find assets 2>/dev/null | sort -f | uniq -di | wc -l)"
+          find assets 2>/dev/null | sort -f | uniq -di | head -5
+          } 2>&1 | tee analysis.txt
+
+      - name: Salvar relatório
+        uses: actions/upload-artifact@v4
+        with:
+          name: analysis
+          path: analysis.txt
+
+      # ------------------------------------------------------------------
+      # LIBS: exatamente as do Project.xml (flixel, addons, ui, hscript,
+      # linc_luajit). Versões = conjunto que já compilou Psych 0.6.x no
+      # Android (não existe hmm.json no repositório para confirmar).
+      # Vídeos (hxCodec) ficam fora neste primeiro build.
+      # ------------------------------------------------------------------
+      - name: Instalar libs
+        run: |
+          haxelib setup ~/haxelib
+          haxelib install lime 8.0.1
+          haxelib install openfl 9.2.1
+          haxelib install hxcpp
+          haxelib install flixel 5.2.2
+          haxelib install flixel-addons 3.0.2
+          haxelib install flixel-ui 2.5.0
+          haxelib install hscript 2.5.0
+          haxelib git linc_luajit https://github.com/Sirox228/linc_luajit.git || haxelib git linc_luajit https://github.com/jigsaw-4277821/linc_luajit.git
+          haxelib run lime setup -alias -y
+          haxelib list
+
+      - name: Configurar Lime para Android
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          haxelib run lime config ANDROID_SDK $ANDROID_HOME
+          haxelib run lime config ANDROID_NDK_ROOT ${{ steps.ndk.outputs.ndk-path }}
+          haxelib run lime config JAVA_HOME $JAVA_HOME
+          haxelib run lime config ANDROID_SETUP true
+
+      - name: Compilar APK
+        run: |
+          set -o pipefail
+          haxelib run lime build android -final 2>&1 | tee build.log
+
+      # Se falhar, mostra só os erros (fácil de tirar print no celular)
+      - name: Resumo dos erros
+        if: failure()
+        run: |
+          echo "=============== ERROS ==============="
+          grep -nE "Error|error:|Type not found|has no field|Unexpected|Expected|Could not|undefined reference|not found|already defined|not installed" build.log | grep -v "Warning" | head -40 || true
+          echo "=============== ÚLTIMAS 30 LINHAS ==============="
+          tail -n 30 build.log
+
+      - name: Salvar log completo
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          if-no-files-found: ignore
+
+      - name: Salvar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: export/**/*.apk
+          if-no-files-found: error
