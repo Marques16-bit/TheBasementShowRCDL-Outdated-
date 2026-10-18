@@ -108,7 +108,21 @@ jobs:
           haxelib install flixel-addons 3.0.2
           haxelib install flixel-ui 2.5.0
           haxelib install hscript 2.5.0
-          haxelib git linc_luajit https://github.com/Sirox228/linc_luajit.git || haxelib git linc_luajit https://github.com/jigsaw-4277821/linc_luajit.git
+          # linc_luajit com binários de Android (os forks antigos do Sirox228 e do
+          # jigsaw-4277821 não existem mais). 1ª opção: ThomasDarkson (Android
+          # armeabi-v7a/arm64-v8a/x86/x86_64, compatível com Psych). 2ª: KlavierGayming.
+          ok=0
+          for url in https://github.com/ThomasDarkson/linc_luajit_updated https://github.com/KlavierGayming/linc_luajit-but-idk; do
+            if haxelib git linc_luajit "$url"; then
+              echo ">>> linc_luajit instalado de: $url"
+              ok=1
+              break
+            fi
+          done
+          if [ "$ok" != "1" ]; then
+            echo "ERRO: nenhum fork do linc_luajit pôde ser instalado"
+            exit 1
+          fi
           haxelib run lime setup -alias -y
           haxelib list
 
@@ -129,6 +143,11 @@ jobs:
       - name: Resumo dos erros
         if: failure()
         run: |
+          if [ ! -f build.log ]; then
+            echo "A compilação nem começou (build.log não existe)."
+            echo "Veja o passo que ficou vermelho acima (instalação de libs ou configuração)."
+            exit 0
+          fi
           echo "=============== ERROS ==============="
           grep -nE "Error|error:|Type not found|has no field|Unexpected|Expected|Could not|undefined reference|not found|already defined|not installed" build.log | grep -v "Warning" | head -40 || true
           echo "=============== ÚLTIMAS 30 LINHAS ==============="
