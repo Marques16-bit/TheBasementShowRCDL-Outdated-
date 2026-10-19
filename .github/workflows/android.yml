@@ -126,6 +126,22 @@ jobs:
           haxelib run lime setup -alias -y
           haxelib list
 
+      # ------------------------------------------------------------------
+      # PATCH DE COMPATIBILIDADE (roda só no CI, o seu repositório não muda)
+      # Imports de js.* (ex.: js.html.FileSystem, erro do AtlasFrameMaker.hx)
+      # só existem em HTML5 e quebram a compilação em C++/Android.
+      # ------------------------------------------------------------------
+      - name: Patch de compatibilidade
+        run: |
+          echo "Imports js.* encontrados em source/:"
+          grep -rnE '^[[:space:]]*import[[:space:]]+js\.' source || echo "(nenhum)"
+          grep -rlE '^[[:space:]]*import[[:space:]]+js\.' source | while read -r f; do
+            sed -i -E '/^[[:space:]]*import[[:space:]]+js\./d' "$f"
+            echo "limpo: $f"
+          done
+          echo "Depois do patch:"
+          grep -rnE '^[[:space:]]*import[[:space:]]+js\.' source || echo "(nenhum)"
+
       - name: Configurar Lime para Android
         run: |
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
